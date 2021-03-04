@@ -23,6 +23,10 @@ LOCAL_CFLAGS := \
     -D_ANDROID_
 
 ## Includes
+LOCAL_C_INCLUDES := \
+    $(TARGET_OUT_HEADERS)/qmi-framework/inc \
+    $(TARGET_OUT_HEADERS)/qmi/inc
+
 LOCAL_HEADER_LIBRARIES := \
     libqmi_headers \
     libqmi_common_headers \
@@ -34,6 +38,7 @@ LOCAL_CFLAGS += $(GNSS_CFLAGS)
 
 ifeq ($(TARGET_KERNEL_VERSION),$(filter $(TARGET_KERNEL_VERSION),3.18 4.4 4.9))
 LOCAL_CFLAGS += -DUSE_QSOCKET
+LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/qsocket/inc
 LOCAL_HEADER_LIBRARIES += libqsocket_headers
 LOCAL_SHARED_LIBRARIES += libqsocket
 endif
