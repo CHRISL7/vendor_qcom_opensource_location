@@ -643,7 +643,6 @@ locClientEventMaskType LocApiV02 :: adjustMaskIfNoSessionOrEngineOff(locClientEv
                                            QMI_LOC_EVENT_MASK_GNSS_NHZ_MEASUREMENT_REPORT_V02 |
                                            QMI_LOC_EVENT_MASK_GNSS_SV_POLYNOMIAL_REPORT_V02 |
                                            QMI_LOC_EVENT_MASK_EPHEMERIS_REPORT_V02 |
-                                           QMI_LOC_EVENT_MASK_GNSS_EVENT_REPORT_V02 |
                                            QMI_LOC_EVENT_MASK_NEXT_LS_INFO_REPORT_V02 |
                                            QMI_LOC_EVENT_MASK_LATENCY_INFORMATION_REPORT_V02;
         qmiMask = qmiMask & ~clearMask;
@@ -964,7 +963,7 @@ void LocApiV02 ::
     location.flags |= LOCATION_HAS_ACCURACY_BIT;
     location.accuracy = accuracy;
 
-    struct timespec time_info_current;
+    struct timespec time_info_current = {};
     if(clock_gettime(CLOCK_REALTIME,&time_info_current) == 0) //success
     {
         location.timestamp = (time_info_current.tv_sec)*1e3 +
@@ -1196,6 +1195,193 @@ void LocApiV02::injectPosition(const GnssLocationInfoNotification &locationInfo,
     LOC_SEND_SYNC_REQ(InjectPosition, INJECT_POSITION, injectPositionReq);
 
     }));
+}
+
+void LocApiV02::injectPositionAndCivicAddress(const Location& location,
+          const GnssCivicAddress& addr) {
+    sendMsg(new LocApiMsg([this, location, addr] () {
+    locClientStatusEnumType status = eLOC_CLIENT_FAILURE_GENERAL;
+    locClientReqUnionType req_union = {};
+
+    qmiLocInjectLocationCivicAddressReqMsgT_v02 injectPosAndAddrReq;
+    qmiLocGenReqStatusIndMsgT_v02 genReqStatusIndMsg;
+    memset(&injectPosAndAddrReq, 0, sizeof(injectPosAndAddrReq));
+    memset(&genReqStatusIndMsg, 0, sizeof(genReqStatusIndMsg));
+
+    if (location.timestamp > 0) {
+        injectPosAndAddrReq.timestampUtc_valid = 1;
+        injectPosAndAddrReq.timestampUtc = location.timestamp;
+    }
+
+    if (LOCATION_HAS_LAT_LONG_BIT & location.flags) {
+        injectPosAndAddrReq.latitude_valid = 1;
+        injectPosAndAddrReq.longitude_valid = 1;
+        injectPosAndAddrReq.latitude = location.latitude;
+        injectPosAndAddrReq.longitude = location.longitude;
+    }
+
+    if (LOCATION_HAS_ACCURACY_BIT & location.flags) {
+        injectPosAndAddrReq.horUncCircular_valid = 1;
+        injectPosAndAddrReq.horUncCircular = location.accuracy;
+        injectPosAndAddrReq.horConfidence_valid = 1;
+        injectPosAndAddrReq.horConfidence = 68;
+
+        // We don't wish to advertise accuracy better than 1000 meters to Modem
+        if (injectPosAndAddrReq.horUncCircular < 1000) {
+            injectPosAndAddrReq.horUncCircular = 1000;
+        }
+    }
+
+    if (LOCATION_HAS_ALTITUDE_BIT & location.flags) {
+        injectPosAndAddrReq.altitudeWrtEllipsoid_valid = 1;
+        injectPosAndAddrReq.altitudeWrtEllipsoid = location.altitude;
+        injectPosAndAddrReq.source_valid = 1;
+        injectPosAndAddrReq.source = eQMI_LOC_ALT_SRC_OTHER_V02;
+    }
+
+    if (LOCATION_HAS_VERTICAL_ACCURACY_BIT & location.flags) {
+        injectPosAndAddrReq.vertUnc_valid = 1;
+        injectPosAndAddrReq.vertUnc = location.verticalAccuracy;
+        injectPosAndAddrReq.vertConfidence_valid = 1;
+        injectPosAndAddrReq.vertConfidence = 68;
+    }
+
+    int len;
+    len = addr.countryCode.length();
+    if (len != 0) {
+        injectPosAndAddrReq.country_valid = 1;
+        strlcpy(injectPosAndAddrReq.country, addr.countryCode.c_str(),
+                len >= QMI_LOC_MAX_COUNTRY_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_COUNTRY_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.subdivA1[QMI_LOC_MAX_COUNTRY_STR_LENGTH_V02] = '\0';
+    }
+
+    len = addr.adminArea.length();
+    if (len != 0) {
+        injectPosAndAddrReq.subdivA1_valid = 1;
+        strlcpy(injectPosAndAddrReq.subdivA1, addr.adminArea.c_str(),
+                len >= QMI_LOC_MAX_SUBDIV_A1_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_SUBDIV_A1_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.subdivA1[QMI_LOC_MAX_SUBDIV_A1_STR_LENGTH_V02] = '\0';
+    }
+
+    len = addr.subAdminArea.length();
+    if (len != 0) {
+        injectPosAndAddrReq.subdivA2_valid = 1;
+        strlcpy(injectPosAndAddrReq.subdivA2, addr.subAdminArea.c_str(),
+                len >= QMI_LOC_MAX_SUBDIV_A2_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_SUBDIV_A2_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.subdivA2[QMI_LOC_MAX_SUBDIV_A2_STR_LENGTH_V02] = '\0';
+    }
+
+    len = addr.locality.length();
+    if (len != 0) {
+        injectPosAndAddrReq.city_valid = 1;
+        strlcpy(injectPosAndAddrReq.city, addr.locality.c_str(),
+                len >= QMI_LOC_MAX_CITY_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_CITY_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.city[QMI_LOC_MAX_CITY_STR_LENGTH_V02] = '\0';
+    }
+
+    len = addr.subLocality.length();
+    if (len != 0) {
+        injectPosAndAddrReq.cityDiv_valid = 1;
+        strlcpy(injectPosAndAddrReq.cityDiv, addr.subLocality.c_str(),
+                len >= QMI_LOC_MAX_CITYDIV_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_CITYDIV_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.cityDiv[QMI_LOC_MAX_CITYDIV_STR_LENGTH_V02] = '\0';
+    }
+
+    len = addr.thoroughfare.length();
+    if (len != 0) {
+        injectPosAndAddrReq.street_valid = 1;
+        strlcpy(injectPosAndAddrReq.street, addr.thoroughfare.c_str(),
+                len >= QMI_LOC_MAX_STREET_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_STREET_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.street[QMI_LOC_MAX_STREET_STR_LENGTH_V02] = '\0';
+    }
+
+    len = addr.featureName.length();
+    if (len != 0) {
+        injectPosAndAddrReq.landmark_valid = 1;
+        strlcpy(injectPosAndAddrReq.landmark, addr.featureName.c_str(),
+                len >= QMI_LOC_MAX_LANDMARK_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_LANDMARK_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.landmark[QMI_LOC_MAX_LANDMARK_STR_LENGTH_V02] = '\0';
+    }
+
+    len = addr.postalCode.length();
+    if (len != 0) {
+        injectPosAndAddrReq.postalCode_valid = 1;
+        strlcpy(injectPosAndAddrReq.postalCode, addr.postalCode.c_str(),
+                len >= QMI_LOC_MAX_POSTAL_CODE_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_POSTAL_CODE_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.postalCode[QMI_LOC_MAX_POSTAL_CODE_STR_LENGTH_V02] = '\0';
+    }
+
+    len = addr.premises.length();
+    if (len != 0) {
+        injectPosAndAddrReq.building_valid = 1;
+        strlcpy(injectPosAndAddrReq.building, addr.premises.c_str(),
+                len >= QMI_LOC_MAX_BUILDING_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_BUILDING_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.building[QMI_LOC_MAX_BUILDING_STR_LENGTH_V02] = '\0';
+    }
+
+    len = addr.thoroughfare.length();
+    if (len != 0) {
+        injectPosAndAddrReq.primaryRoad_valid = 1;
+        strlcpy(injectPosAndAddrReq.primaryRoad, addr.thoroughfare.c_str(),
+                len >= QMI_LOC_MAX_PRIMARY_ROAD_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_PRIMARY_ROAD_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.primaryRoad[QMI_LOC_MAX_PRIMARY_ROAD_STR_LENGTH_V02] =
+                '\0';
+    }
+
+    len = addr.subThoroughfare.length();
+    if (len != 0) {
+        injectPosAndAddrReq.roadSection_valid = 1;
+        strlcpy(injectPosAndAddrReq.roadSection, addr.subThoroughfare.c_str(),
+                len >= QMI_LOC_MAX_ROAD_SECTION_STR_LENGTH_V02 ?
+                QMI_LOC_MAX_ROAD_SECTION_STR_LENGTH_V02 : len);
+        injectPosAndAddrReq.roadSection[QMI_LOC_MAX_ROAD_SECTION_STR_LENGTH_V02] =
+                '\0';
+    }
+
+    LOC_LOGd("[%s:%d] QMI Civic Address: countryCode: %s, SubdivA1: %s,\n"
+            "SubdivA2: %s, City: %s, CityDiv: %s\n"
+            "Street: %s, landmark: %s, postalCode: %s\n"
+            "Building: %s, PrimaryRoad: %s, RoadSection: %s", __func__, __LINE__,
+            injectPosAndAddrReq.country,
+            injectPosAndAddrReq.subdivA1,
+            injectPosAndAddrReq.subdivA2,
+            injectPosAndAddrReq.city,
+            injectPosAndAddrReq.cityDiv,
+            injectPosAndAddrReq.street,
+            injectPosAndAddrReq.landmark,
+            injectPosAndAddrReq.postalCode,
+            injectPosAndAddrReq.building,
+            injectPosAndAddrReq.primaryRoad,
+            injectPosAndAddrReq.roadSection);
+
+    req_union.pInjectLocationCivicAddressReq = &injectPosAndAddrReq;
+
+    status = loc_sync_send_req(clientHandle,
+                               QMI_LOC_INJECT_LOCATION_CIVIC_ADDRESS_REQ_V02,
+                               req_union,
+                               LOC_ENGINE_SYNC_REQUEST_TIMEOUT,
+                               QMI_LOC_INJECT_LOCATION_CIVIC_ADDRESS_IND_V02,
+                               &genReqStatusIndMsg);
+
+    if (status != eLOC_CLIENT_SUCCESS ||
+            genReqStatusIndMsg.status != eQMI_LOC_SUCCESS_V02) {
+        LOC_LOGe("Inject Civic address failed. status: %s ind status %s",
+                loc_get_v02_client_status_name(status),
+                loc_get_v02_qmi_status_name(genReqStatusIndMsg.status));
+    }
+
+    }));
+
 }
 
 /* delete assistance date */
@@ -2562,7 +2748,7 @@ void LocApiV02 :: reportPosition (
     locationExtended.flags |= GPS_LOCATION_EXTENDED_HAS_OUTPUT_ENG_MASK;
     locationExtended.locOutputEngMask = STANDARD_POSITIONING_ENGINE;
 
-    struct timespec apTimestamp;
+    struct timespec apTimestamp = {};
     if( clock_gettime( CLOCK_BOOTTIME, &apTimestamp)== 0)
     {
        locationExtended.timeStamp.apTimeStamp.tv_sec = apTimestamp.tv_sec;
@@ -2603,21 +2789,16 @@ void LocApiV02 :: reportPosition (
             dataNotify.agc[i-1] = 0.0;
             dataNotify.jammerInd[i-1] = 0.0;
             if (GNSS_INVALID_JAMMER_IND !=
-                location_report_ptr->jammerIndicatorList[i].agcMetricDb) {
-                LOC_LOGv("agcMetricDb[%d]=0x%X",
-                         i, location_report_ptr->jammerIndicatorList[i].agcMetricDb);
-                dataNotify.gnssDataMask[i-1] |= GNSS_LOC_DATA_AGC_BIT;
-                dataNotify.agc[i-1] =
-                    (double)location_report_ptr->jammerIndicatorList[i].agcMetricDb / 100.0;
-                msInWeek = -1;
-            }
-            if (GNSS_INVALID_JAMMER_IND !=
                 location_report_ptr->jammerIndicatorList[i].bpMetricDb) {
-                LOC_LOGv("bpMetricDb[%d]=0x%X",
+                LOC_LOGv("agcMetricDb[%d]=%d; bpMetricDb[%d]=%d",
+                         i, -location_report_ptr->jammerIndicatorList[i].bpMetricDb,
                          i, location_report_ptr->jammerIndicatorList[i].bpMetricDb);
-                dataNotify.gnssDataMask[i-1] |= GNSS_LOC_DATA_JAMMER_IND_BIT;
+                dataNotify.gnssDataMask[i-1] |=
+                        GNSS_LOC_DATA_AGC_BIT | GNSS_LOC_DATA_JAMMER_IND_BIT;
+                dataNotify.agc[i-1] =
+                        -(double)location_report_ptr->jammerIndicatorList[i].bpMetricDb / 100.0;
                 dataNotify.jammerInd[i-1] =
-                    (double)location_report_ptr->jammerIndicatorList[i].bpMetricDb / 100.0;
+                        (double)location_report_ptr->jammerIndicatorList[i].bpMetricDb / 100.0;
                 msInWeek = -1;
             }
         }
@@ -2707,7 +2888,7 @@ void LocApiV02 :: reportPosition (
         locationExtended.tech_mask = convertPosTechMask(location_report_ptr->technologyMask);
 
         //Mark the location source as from GNSS
-        location.gpsLocation.flags |= LOCATION_HAS_SOURCE_INFO;
+        location.gpsLocation.flags |= LOC_GPS_LOCATION_HAS_SOURCE_INFO;
         location.position_source = ULP_LOCATION_IS_FROM_GNSS;
 
         if (location_report_ptr->spoofReportMask_valid)
@@ -2747,10 +2928,13 @@ void LocApiV02 :: reportPosition (
            locationExtended.vert_unc = location_report_ptr->vertUnc;
         }
 
-        if (location_report_ptr->speedUnc_valid)
+        if (location_report_ptr->velUncEnu_valid)
         {
            locationExtended.flags |= GPS_LOCATION_EXTENDED_HAS_SPEED_UNC;
-           locationExtended.speed_unc = location_report_ptr->speedUnc;
+           locationExtended.speed_unc = sqrt(location_report_ptr->velUncEnu[0] *
+                                             location_report_ptr->velUncEnu[0] +
+                                             location_report_ptr->velUncEnu[1] *
+                                             location_report_ptr->velUncEnu[1]);
         }
         if (location_report_ptr->headingUnc_valid)
         {
@@ -4121,7 +4305,11 @@ void LocApiV02::populateFeatureStatusReport
     } else {
         featureMap[LOCATION_QWES_FEATURE_TYPE_CLOCK_ESTIMATE] = false;
     }
-
+    if (featureStatusReport & QMI_LOC_FEATURE_STATUS_DGNSS_V02) {
+        featureMap[LOCATION_QWES_FEATURE_TYPE_DGNSS] = true;
+    } else {
+        featureMap[LOCATION_QWES_FEATURE_TYPE_DGNSS] = false;
+    }
 }
 
 void LocApiV02::reportSvEphemeris (
@@ -4746,7 +4934,26 @@ void LocApiV02 :: reportAtlRequest(
     }
     LOC_LOGd("handle=%d agpsType=0x%X apnTypeMask=0x%X",
         connHandle, agpsType, apnTypeMask);
-    requestATL(connHandle, agpsType, apnTypeMask);
+
+    LocSubId agpsSubId = LOC_DEFAULT_SUB;
+    if (server_request_ptr->subId_valid) {
+        switch (server_request_ptr->subId) {
+        case eQMI_LOC_SYS_MODEM_AS_ID_1_V02:
+            agpsSubId = LOC_PRIMARY_SUB;
+            break;
+        case eQMI_LOC_SYS_MODEM_AS_ID_2_V02:
+            agpsSubId = LOC_SECONDARY_SUB;
+            break;
+        case eQMI_LOC_SYS_MODEM_AS_ID_3_V02:
+            agpsSubId = LOC_TERTIARY_SUB;
+            break;
+        default:
+            agpsSubId = LOC_DEFAULT_SUB;
+            break;
+        }
+    }
+    LOC_LOGd("agpsSubId=%d", agpsSubId);
+    requestATL(connHandle, agpsType, apnTypeMask, agpsSubId);
   }
   // service the ATL close request
   else if (server_request_ptr->requestType == eQMI_LOC_SERVER_REQUEST_CLOSE_V02)
@@ -5411,7 +5618,7 @@ void LocApiV02 ::reportSvMeasurementInternal() {
             mGnssMeasurements->gnssSvMeasurementSet.svMeasSetHeader;
 
         // when we received the last sequence, timestamp the packet with AP time
-        struct timespec apTimestamp;
+        struct timespec apTimestamp = {};
         if (clock_gettime(CLOCK_BOOTTIME, &apTimestamp)== 0) {
             svMeasSetHead.apBootTimeStamp.apTimeStamp.tv_sec = apTimestamp.tv_sec;
             svMeasSetHead.apBootTimeStamp.apTimeStamp.tv_nsec = apTimestamp.tv_nsec;
@@ -5929,6 +6136,10 @@ void LocApiV02::requestOdcpi(const qmiLocEventWifiReqIndMsgT_v02& qmiReq)
 
     if (qmiReq.tbfInMs_valid) {
         req.tbfMillis = qmiReq.tbfInMs;
+    }
+
+    if (qmiReq.civicAddressNeeded_valid) {
+        req.isCivicAddressRequired = qmiReq.civicAddressNeeded == 1 ? true : false;
     }
 
     LocApiBase::requestOdcpi(req);
@@ -6466,18 +6677,18 @@ bool LocApiV02 :: convertGnssMeasurements(
     // AGC
     if (gnss_measurement_report_ptr.jammerIndicator_valid) {
         if (GNSS_INVALID_JAMMER_IND !=
-            gnss_measurement_report_ptr.jammerIndicator.agcMetricDb) {
-            LOC_LOGv("AGC is valid: agcMetricDb = 0x%X bpMetricDb = 0x%X",
-                gnss_measurement_report_ptr.jammerIndicator.agcMetricDb,
-                gnss_measurement_report_ptr.jammerIndicator.bpMetricDb);
+            gnss_measurement_report_ptr.jammerIndicator.bpMetricDb) {
+            LOC_LOGv("AGC is valid: agcMetricDb = %d bpMetricDb = %d",
+                     -gnss_measurement_report_ptr.jammerIndicator.bpMetricDb,
+                     gnss_measurement_report_ptr.jammerIndicator.bpMetricDb);
 
             measurementData.agcLevelDb =
-                (double)gnss_measurement_report_ptr.jammerIndicator.agcMetricDb / 100.0;
+                    -(double)gnss_measurement_report_ptr.jammerIndicator.bpMetricDb / 100.0;
             measurementData.flags |= GNSS_MEASUREMENTS_DATA_AUTOMATIC_GAIN_CONTROL_BIT;
         } else {
             LOC_LOGv("AGC is invalid: agcMetricDb = 0x%X bpMetricDb = 0x%X",
-                 gnss_measurement_report_ptr.jammerIndicator.agcMetricDb,
-                 gnss_measurement_report_ptr.jammerIndicator.bpMetricDb);
+                     gnss_measurement_report_ptr.jammerIndicator.agcMetricDb,
+                     gnss_measurement_report_ptr.jammerIndicator.bpMetricDb);
         }
         bAgcIsPresent = true;
     } else {
@@ -7780,7 +7991,7 @@ handleWwanZppFixIndication(const qmiLocGetAvailWwanPositionIndMsgT_v02& zpp_ind)
             /* The UTC time from modem is not valid.
             In this case, we use current system time instead.*/
 
-            struct timespec time_info_current;
+            struct timespec time_info_current = {};
             clock_gettime(CLOCK_REALTIME,&time_info_current);
             zppLoc.timestamp = (time_info_current.tv_sec)*1e3 +
                                (time_info_current.tv_nsec)/1e6;
@@ -7846,7 +8057,7 @@ void LocApiV02::
             /* The UTC time from modem is not valid.
                     In this case, we use current system time instead.*/
 
-          struct timespec time_info_current;
+          struct timespec time_info_current = {};
           clock_gettime(CLOCK_REALTIME,&time_info_current);
           zppLoc.timestamp = (time_info_current.tv_sec)*1e3 +
                   (time_info_current.tv_nsec)/1e6;

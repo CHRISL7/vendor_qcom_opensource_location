@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2021, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,11 +31,17 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <loc_pla.h>
 #include <LocApiBase.h>
 #include <loc_api_v02_client.h>
 #include <vector>
 #include <functional>
-#include <unordered_map>
+#ifdef NO_UNORDERED_SET_OR_MAP
+    #include <map>
+    #define unordered_map map
+#else
+    #include <unordered_map>
+#endif
 
 #define LOC_SEND_SYNC_REQ(NAME, ID, REQ)  \
     int rv = true; \
@@ -433,6 +439,9 @@ public:
 
   virtual void
     injectPosition(const GnssLocationInfoNotification &locationInfo, bool onDemandCpi);
+
+  virtual void injectPositionAndCivicAddress(const Location& location,
+          const GnssCivicAddress& addr);
 
   virtual void
     deleteAidingData(const GnssAidingData& data, LocApiResponse *adapterResponse);
