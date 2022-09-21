@@ -359,6 +359,7 @@ private:
   void geofenceStatusEvent(const qmiLocEventGeofenceGenAlertIndMsgT_v02* alertInfo);
   void geofenceDwellEvent(const qmiLocEventGeofenceBatchedDwellIndMsgT_v02 *dwellEvent);
   void reportLatencyInfo(const qmiLocLatencyInformationIndMsgT_v02* pLocLatencyInfo);
+  void reportEngDebugDataInfo(const qmiLocEngineDebugDataIndMsgT_v02* pLocEngDbgDataInfoIndMsg);
 
 protected:
   virtual enum loc_api_adapter_err
